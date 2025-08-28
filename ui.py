@@ -35,9 +35,8 @@ async def call_tool(server_url: str, tool_name: str, arguments: dict) -> str:
 
 def main():
     st.title("Streamlit as an MCP Tool Host")
-    st.write("Select a tool and provide inputs as required. The MCP server URL should be the SSE endpoint (e.g., http://localhost:8000/sse).")
 
-    server_url = st.text_input("MCP Server SSE URL", "http://localhost:8000/sse")
+    server_url = "http://localhost:8000/sse"
 
     tool_name = st.selectbox(
         "Select Tool",
@@ -61,7 +60,6 @@ def main():
         try:
             result = asyncio.run(call_tool(server_url, tool_name, arguments))
             relevant = extract_result_structured_content(result)
-            st.subheader(f"{tool_name} Result")
             st.text_area("Result", str(relevant), height=80)
         except Exception as e:
             st.error(f"An error occurred: {e}")
