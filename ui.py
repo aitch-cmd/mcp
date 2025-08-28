@@ -1,47 +1,70 @@
 import streamlit as st
-import httpx
+import asyncio
+import traceback
+import ast  # To safely parse returned string to dictionary
+from mcp import ClientSession
+from mcp.client.sse import sse_client
 
-st.title("MCP Server + Streamlit Demo (JSON-RPC)")
+def extract_result_structured_content(result_str):
+    """
+    Extract the 'result' value from the structuredContent dictionary string 
+    (returned by MCP tool).
+    """
+    if "structuredContent=" in result_str:
+        idx = result_str.find("structuredContent=")
+        start = result_str.find("{", idx)
+        end = result_str.find("}", start)
+        if start != -1 and end != -1:
+            dict_str = result_str[start:end+1]
+            try:
+                res_dict = ast.literal_eval(dict_str)
+                return res_dict.get("result", result_str)
+            except Exception:
+                pass
+    return result_str
 
-# Helper to call MCP JSON-RPC
-def call_tool(method: str, params: dict = None):
-    if params is None:
-        params = {}
-    payload = {
-        "jsonrpc": "2.0",
-        "id": 1,
-        "method": f"tools/{method}",
-        "params": params,
-    }
+async def call_tool(server_url: str, tool_name: str, arguments: dict) -> str:
     try:
-        resp = httpx.post("http://localhost:8000/mcp", json=payload)
-        data = resp.json()
-        if "result" in data:
-            return data["result"]
-        elif "error" in data:
-            return f"Error: {data['error']}"
-        else:
-            return "Unexpected response format"
+        async with sse_client(server_url) as streams:
+            async with ClientSession(streams[0], streams[1]) as session:
+                await session.initialize()
+                result = await session.call_tool(tool_name, arguments=arguments)
+                return str(result)
     except Exception as e:
-        return f"Request failed: {e}"
+        return f"Error: {e}\n{traceback.format_exc()}"
 
-    
-# Dataset summary
-if st.button("Show Dataset Summary"):
-    st.write(call_tool("summarize_dataset"))
+def main():
+    st.title("Streamlit as an MCP Tool Host")
+    st.write("Select a tool and provide inputs as required. The MCP server URL should be the SSE endpoint (e.g., http://localhost:8000/sse).")
 
-# Column statistics
-column = st.text_input("Enter column name")
-if st.button("Compute Mean"):
-    st.write(call_tool("compute_mean", {"column": column}))
+    server_url = st.text_input("MCP Server SSE URL", "http://localhost:8000/sse")
 
-if st.button("Compute Median"):
-    st.write(call_tool("compute_median", {"column": column}))
+    tool_name = st.selectbox(
+        "Select Tool",
+        [
+            "summarize_dataset",
+            "compute_mean",
+            "compute_median",
+            "compute_std",
+            "get_stock_price"
+        ]
+    )
 
-if st.button("Compute Standard Deviation"):
-    st.write(call_tool("compute_std", {"column": column}))
+    arguments = {}
+    if tool_name in ["compute_mean", "compute_median", "compute_std"]:
+        arguments["column"] = st.text_input("Enter column name")
+    elif tool_name == "get_stock_price":
+        arguments["symbol"] = st.text_input("Enter stock symbol")
 
-# Stock price
-symbol = st.text_input("Enter Stock Symbol")
-if st.button("Get Stock Price"):
-    st.write(call_tool("get_stock_price", {"symbol": symbol}))
+    if st.button("Run Tool"):
+        st.info(f"Running '{tool_name}' tool on MCP server...")
+        try:
+            result = asyncio.run(call_tool(server_url, tool_name, arguments))
+            relevant = extract_result_structured_content(result)
+            st.subheader(f"{tool_name} Result")
+            st.text_area("Result", str(relevant), height=80)
+        except Exception as e:
+            st.error(f"An error occurred: {e}")
+
+if __name__ == "__main__":
+    main()
