@@ -73,4 +73,4 @@ async def get_stock_price(symbol: str) -> str:
 
 # Run the server
 if __name__ == "__main__":
-    mcp.run(transport="stdio")
+    mcp.run(transport="streamable-http")
